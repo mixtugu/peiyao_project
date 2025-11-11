@@ -23,25 +23,6 @@ export type SettingLayoutRow = {
   updated_at?: string | null;
 };
 
-// 프레임 ID들(20개)
-const FRAME_IDS = Array.from({ length: 20 }, (_, i) => `frame-${i + 1}`);
-
-// 기본 배치 계산 (그리드 기반)
-function defaultLayout(index: number) {
-  const baseW = 260;
-  const baseH = 180;
-  const margin = 16;
-  const cols = 4;
-  const col = index % cols;
-  const row = Math.floor(index / cols);
-  return {
-    x: col * (baseW + margin),
-    y: row * (baseH + margin),
-    w: baseW,
-    h: baseH,
-  };
-}
-
 export default function SettingPage() {
   const [views, setViews] = useState<Record<string, { x: number; y: number; w: number; h: number }>>({});
   const [hovered, setHovered] = useState<string | null>(null);
@@ -56,6 +37,7 @@ export default function SettingPage() {
   } | null>(null);
   const [statusMsg, setStatusMsg] = useState<string>('');
   const [topId, setTopId] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
 
   const canvasRef = useRef<HTMLDivElement | null>(null);
   const itemRefs = useRef<Record<string, HTMLDivElement | null>>({});
@@ -64,23 +46,28 @@ export default function SettingPage() {
   // 1) Supabase에서 기존 레이아웃 로드 → views 초기화
   useEffect(() => {
     (async () => {
-      const { data, error } = await supabase
-        .from('setting_layouts')
-        .select('id,x,y,w,h');
+      try {
+        const { data, error } = await supabase
+          .from('setting_layouts')
+          .select('id,x,y,w,h');
 
-      const map: Record<string, { x: number; y: number; w: number; h: number }> = {};
+        if (error) throw error;
 
-      if (!error && Array.isArray(data)) {
-        for (const it of data as SettingLayoutRow[]) {
-          if (it && it.id) map[it.id] = { x: Number(it.x), y: Number(it.y), w: Number(it.w), h: Number(it.h) };
+        const map: Record<string, { x: number; y: number; w: number; h: number }> = {};
+        if (Array.isArray(data)) {
+          for (const it of data as SettingLayoutRow[]) {
+            if (it && it.id) {
+              map[it.id] = { x: Number(it.x), y: Number(it.y), w: Number(it.w), h: Number(it.h) };
+            }
+          }
         }
+        setViews(map); // ❗️기본 배치 채우지 않음
+      } catch (e: any) {
+        console.error('[setting_layouts select] error:', e);
+        setStatusMsg(`[로드 실패] ${e?.message ?? e}`);
+      } finally {
+        setIsLoading(false);
       }
-
-      const next: Record<string, { x: number; y: number; w: number; h: number }> = {};
-      FRAME_IDS.forEach((id, idx) => {
-        next[id] = map[id] ?? defaultLayout(idx);
-      });
-      setViews(next);
     })();
   }, []);
 
@@ -88,20 +75,21 @@ export default function SettingPage() {
   useEffect(() => {
     const timer = setTimeout(async () => {
       try {
-        const payload: SettingLayoutRow[] = FRAME_IDS.map((id) => {
-          const v = views[id] ?? defaultLayout(Number(id.split('-')[1]) - 1);
-          return { id, x: Math.round(v.x), y: Math.round(v.y), w: Math.round(v.w), h: Math.round(v.h) };
-        });
-        if (payload.length === 0) return;
+        const entries = Object.entries(views);
+        if (entries.length === 0) return; // 저장할 항목 없음
+        const payload: SettingLayoutRow[] = entries.map(([id, v]) => ({
+          id,
+          x: Math.round(v.x),
+          y: Math.round(v.y),
+          w: Math.round(v.w),
+          h: Math.round(v.h),
+        }));
         const { error } = await supabase
           .from('setting_layouts')
           .upsert(payload, { onConflict: 'id' });
         if (error) {
           console.error('[setting_layouts upsert] error:', error);
           setStatusMsg(`[저장 실패] ${error.message ?? error}`);
-        } else {
-          // 소음 방지를 위해 성공 메시지는 생략; 필요시 다음 줄 주석 해제
-          // setStatusMsg('저장됨');
         }
       } catch (e: any) {
         console.error(e);
@@ -178,69 +166,64 @@ export default function SettingPage() {
         ref={canvasRef}
         style={{ position: 'absolute', inset: 0, overflow: 'auto', background: '#ffffff' }}
       >
+        {isLoading ? null : (Object.keys(views).length === 0 && (
+          <div style={{ position: 'absolute', top: 24, left: 24, color: '#64748b', fontSize: 13 }}>
+            저장된 프레임 배치가 없습니다. (Supabase: setting_layouts)
+          </div>
+        ))}
         <div style={{ position: 'relative', minWidth: 1200, minHeight: 800 }}>
-          {FRAME_IDS.map((id, idx) => {
-            const v = views[id] ?? defaultLayout(idx);
-            return (
-              <div
-                key={id}
-                ref={(el) => setItemRef(id, el)}
-                onMouseEnter={() => setHovered(id)}
-                onMouseLeave={() => setHovered((prev) => (prev === id ? null : prev))}
-                onMouseDown={(e) => {
-                  setTopId(id);
-                  // 좌클릭만 드래그 허용
-                  if (e.button !== 0) return;
-
-                  const el = canvasRef.current;
-                  if (!el) return;
-
-                  const parentRect = el.getBoundingClientRect();
-                  const cardEl = e.currentTarget as HTMLDivElement;
-                  const cardRect = cardEl.getBoundingClientRect();
-
-                  // ✅ 우하단 네이티브 리사이즈 핸들 근처(예: 18px)에서 누르면 드래그 비활성화
-                  const gripThreshold = 18;
-                  const nearRight = cardRect.right - e.clientX <= gripThreshold;
-                  const nearBottom = cardRect.bottom - e.clientY <= gripThreshold;
-                  const isResizeGrip = nearRight && nearBottom;
-                  if (isResizeGrip) return; // 리사이즈 중에는 위치가 움직이지 않도록 드래그 차단
-
-                  setDragging({
-                    id,
-                    offsetX: e.clientX - cardRect.left,
-                    offsetY: e.clientY - cardRect.top,
-                    canvasLeft: parentRect.left,
-                    canvasTop: parentRect.top,
-                    scrollLeft: el.scrollLeft,
-                    scrollTop: el.scrollTop,
-                  });
-                }}
-                title={`${id}`}
-                style={{
-                  position: 'absolute',
-                  left: Number(v.x),
-                  top: Number(v.y),
-                  width: Number(v.w),
-                  height: Number(v.h),
-                  border: hovered === id ? '1px solid #64748b' : '1px solid #cbd5e1',
-                  borderRadius: 8,
-                  background: '#ffffff',
-                  boxShadow: '0 0 0 rgba(0,0,0,0)',
-                  overflow: 'hidden',
-                  resize: 'both', // CSS 리사이즈 지원
-                  cursor: hovered === id ? (dragging?.id === id ? 'grabbing' : 'grab') : 'default',
-                  userSelect: 'none',
-                  zIndex: topId === id ? 1000 : 1,
-                }}
-              >
-                {/* 프레임 내용 (현재는 빈 상자; 필요 시 프리뷰/텍스트 등 넣을 수 있음) */}
-                <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8', fontSize: 12 }}>
-                  {id}
-                </div>
+          {Object.entries(views).map(([id, v]) => (
+            <div
+              key={id}
+              ref={(el) => setItemRef(id, el)}
+              onMouseEnter={() => setHovered(id)}
+              onMouseLeave={() => setHovered((prev) => (prev === id ? null : prev))}
+              onMouseDown={(e) => {
+                setTopId(id);
+                if (e.button !== 0) return;
+                const el = canvasRef.current;
+                if (!el) return;
+                const parentRect = el.getBoundingClientRect();
+                const cardEl = e.currentTarget as HTMLDivElement;
+                const cardRect = cardEl.getBoundingClientRect();
+                const gripThreshold = 18;
+                const nearRight = cardRect.right - e.clientX <= gripThreshold;
+                const nearBottom = cardRect.bottom - e.clientY <= gripThreshold;
+                const isResizeGrip = nearRight && nearBottom;
+                if (isResizeGrip) return;
+                setDragging({
+                  id,
+                  offsetX: e.clientX - cardRect.left,
+                  offsetY: e.clientY - cardRect.top,
+                  canvasLeft: parentRect.left,
+                  canvasTop: parentRect.top,
+                  scrollLeft: el.scrollLeft,
+                  scrollTop: el.scrollTop,
+                });
+              }}
+              title={`${id}`}
+              style={{
+                position: 'absolute',
+                left: Number(v.x),
+                top: Number(v.y),
+                width: Number(v.w),
+                height: Number(v.h),
+                border: hovered === id ? '1px solid #64748b' : '1px solid #cbd5e1',
+                borderRadius: 8,
+                background: '#ffffff',
+                boxShadow: '0 0 0 rgba(0,0,0,0)',
+                overflow: 'hidden',
+                resize: 'both',
+                cursor: hovered === id ? (dragging?.id === id ? 'grabbing' : 'grab') : 'default',
+                userSelect: 'none',
+                zIndex: topId === id ? 1000 : 1,
+              }}
+            >
+              <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8', fontSize: 12 }}>
+                {id}
               </div>
-            );
-          })}
+            </div>
+          ))}
         </div>
       </div>
     </div>
