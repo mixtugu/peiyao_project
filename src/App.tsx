@@ -1,4 +1,3 @@
-import React from 'react';
 import { useEffect, useState } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import './App.css';
@@ -19,15 +18,6 @@ type UnlockedRow = {
   created_at?: string | null;
 };
 
-type LayoutRow = {
-  id: string; // unlockeddata.id 와 동일
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-  updated_at?: string | null;
-};
-
 type FrameLayout = {
   id: string; // 'frame-1' ~ 'frame-20'
   x: number;
@@ -43,15 +33,11 @@ function App() {
   const [frames, setFrames] = useState<FrameLayout[]>([]);
 
   const [rows, setRows] = useState<UnlockedRow[]>([]);
-  const [loading, setLoading] = useState<boolean>(true);
-  const [error, setError] = useState<string | null>(null);
 
   // 1) 초기 로드
   useEffect(() => {
     const fetchImages = async () => {
       try {
-        setLoading(true);
-
         const { data, error } = await supabase
           .from('unlockeddata')
           .select('id, image_url, created_at')
@@ -70,9 +56,7 @@ function App() {
 
         setRows(cleaned);
       } catch (e: any) {
-        setError(e?.message ?? '데이터를 불러오는 중 오류가 발생했습니다.');
-      } finally {
-        setLoading(false);
+        console.error(e?.message ?? '데이터를 불러오는 중 오류가 발생했습니다.');
       }
     };
 
@@ -146,7 +130,7 @@ function App() {
           setRows((prev) => prev.filter((r) => r.id !== deleted.id));
         }
       )
-      .subscribe((status) => {
+      .subscribe(() => {
         // 필요 시 상태 확인 가능 (SUBSCRIBED 등)
         // console.log('realtime status:', status);
       });
