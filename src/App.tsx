@@ -41,7 +41,8 @@ function App() {
         const { data, error } = await supabase
           .from('unlockeddata')
           .select('id, image_url, created_at')
-          .order('created_at', { ascending: false });
+          .order('created_at', { ascending: false })
+          .limit(16);
 
         if (error) throw error;
 
@@ -54,7 +55,7 @@ function App() {
               created_at: r.created_at ?? null,
             }));
 
-        setRows(cleaned);
+        setRows(cleaned.slice(0, 16));
       } catch (e: any) {
         console.error(e?.message ?? '데이터를 불러오는 중 오류가 발생했습니다.');
       }
@@ -84,7 +85,7 @@ function App() {
           const nb = parseInt(b.id.split('-')[1] || '0', 10);
           return na - nb;
         });
-        setFrames(list);
+        setFrames(list.slice(0, 16));
       } catch (e: any) {
         console.error(e);
         setFrames([]);
@@ -104,9 +105,9 @@ function App() {
           const newRow = payload.new as UnlockedRow;
           if (!newRow?.image_url) return;
           setRows((prev) => {
-            // 같은 id가 있으면 교체, 없으면 앞에 추가
+            // 같은 id가 있으면 교체, 없으면 앞에 추가 후 16개로 제한
             const withoutDup = prev.filter((r) => r.id !== newRow.id);
-            return [{ ...newRow }, ...withoutDup];
+            return ([{ ...newRow }, ...withoutDup]).slice(0, 16);
           });
         }
       )
@@ -172,7 +173,7 @@ function App() {
     }
   };
 
-  // 최신이 1번 슬롯, 그 다음이 2번 ... 최대 20번까지 (21번째 이후는 보이지 않음)
+  // 최신이 1번 슬롯, 그 다음이 2번 ... 최대 16번까지 (17번째 이후는 보이지 않음)
   const desc = [...rows].sort((a, b) => {
     const ta = a.created_at ? new Date(a.created_at).getTime() : 0;
     const tb = b.created_at ? new Date(b.created_at).getTime() : 0;
@@ -180,7 +181,7 @@ function App() {
   });
   
   const slotToRow: Record<number, UnlockedRow | undefined> = {};
-  for (let slot = 1; slot <= 20; slot++) {
+  for (let slot = 1; slot <= 16; slot++) {
     const item = desc[slot - 1]; // 1번 슬롯 = desc[0] (최신)
     if (item) slotToRow[slot] = item;
   }
@@ -216,7 +217,7 @@ function App() {
           };
 
           // 이미지가 배정된 슬롯만 렌더 (비어있는 프레임은 숨김)
-          const visibleIdx = Array.from({ length: 20 }, (_, i) => i).filter((i) => !!slotToRow[i + 1]);
+          const visibleIdx = Array.from({ length: 16 }, (_, i) => i).filter((i) => !!slotToRow[i + 1]);
           const boxes = visibleIdx.map((i) => getBox(i));
 
           const canvasW = Math.max(1200, ...(boxes.length ? boxes.map(b => Number(b.x) + Number(b.w) + 32) : [0]));
