@@ -172,21 +172,17 @@ function App() {
     }
   };
 
-  // 링 버퍼 매핑: 전체를 오래된→최신으로 정렬하고, 절대 인덱스 기반으로 1..20 슬롯에 순환 배치
-  const ordered = [...rows].sort((a, b) => {
+  // 최신이 1번 슬롯, 그 다음이 2번 ... 최대 20번까지 (21번째 이후는 보이지 않음)
+  const desc = [...rows].sort((a, b) => {
     const ta = a.created_at ? new Date(a.created_at).getTime() : 0;
     const tb = b.created_at ? new Date(b.created_at).getTime() : 0;
-    return ta - tb;
+    return tb - ta; // 최신 우선
   });
-  // 최신 20개만 화면에 표시하되, 각 항목은 "전체 절대 인덱스"로 슬롯을 계산하여 배치
-  const startIdx = Math.max(0, ordered.length - 20);
+  
   const slotToRow: Record<number, UnlockedRow | undefined> = {};
-  const rowMap: Record<string, UnlockedRow> = {};
-  ordered.forEach((r) => { if (r?.id) rowMap[r.id] = r; });
-  for (let i = startIdx; i < ordered.length; i++) {
-    const oneBased = i + 1;                 // 전체 절대 인덱스 (1부터)
-    const slot = ((oneBased - 1) % 20) + 1; // 1..20 순환
-    slotToRow[slot] = ordered[i];
+  for (let slot = 1; slot <= 20; slot++) {
+    const item = desc[slot - 1]; // 1번 슬롯 = desc[0] (최신)
+    if (item) slotToRow[slot] = item;
   }
 
   return (
