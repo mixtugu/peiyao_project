@@ -13,6 +13,9 @@ const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
+// lockeddata 행 타입 (사용하는 필드만)
+type LockedRow = { id: string; nfc_id: string | null; created_at: string | null };
+
 // 레이아웃 테이블 행 타입
 export type SettingLayoutRow = {
   id: string;      // frame-1 ~ frame-20 고정 ID
@@ -154,11 +157,98 @@ export default function SettingPage() {
     };
   }, []);
 
+  // ===== Cleanup handler: currentdata 전체 삭제 + lockeddata 중복(nfc_id)에서 최신(더 새로운) 행 삭제 =====
+  const handleCleanup = async () => {
+    try {
+      setStatusMsg('정리 중...');
+
+      // 1) currentdata: 모든 행 삭제 (id 목록을 읽어와 in(...) 삭제)
+      const { data: currentIds, error: curSelErr } = await supabase
+        .from('currentdata')
+        .select('id');
+      if (curSelErr) throw curSelErr;
+      const curIdList = (currentIds ?? []).map((r: any) => r.id).filter(Boolean);
+      if (curIdList.length > 0) {
+        const { error: curDelErr } = await supabase
+          .from('currentdata')
+          .delete()
+          .in('id', curIdList);
+        if (curDelErr) throw curDelErr;
+      }
+
+      // 2) lockeddata: 같은 nfc_id 내에서 "더 새로운(created_at 최신)" 행들을 삭제 → 가장 오래된 행만 보존
+      const { data: lockedRows, error: lockedSelErr } = await supabase
+        .from('lockeddata')
+        .select('id, nfc_id, created_at');
+      if (lockedSelErr) throw lockedSelErr;
+
+      const byNfc: Record<string, LockedRow[]> = {};
+      (lockedRows as LockedRow[] | null)?.forEach((row) => {
+        const key = String(row.nfc_id ?? '');
+        if (!byNfc[key]) byNfc[key] = [];
+        byNfc[key].push(row);
+      });
+
+      const idsToDelete: string[] = [];
+      Object.values(byNfc).forEach((rows) => {
+        if (rows.length <= 1) return;
+        // created_at 내림차순(최신 먼저) → 최신들을 모두 삭제하고, 가장 오래된(마지막)만 보존
+        rows.sort((a, b) => {
+          const ta = a.created_at ? Date.parse(a.created_at) : 0;
+          const tb = b.created_at ? Date.parse(b.created_at) : 0;
+          return tb - ta; // desc
+        });
+        // 삭제 대상: 인덱스 0..length-2 (최신 것들)
+        rows.slice(0, rows.length - 1).forEach((r) => r.id && idsToDelete.push(r.id));
+      });
+
+      if (idsToDelete.length > 0) {
+        // Supabase in(...) 최대 개수 제한을 고려해 배치 삭제
+        const chunkSize = 500;
+        for (let i = 0; i < idsToDelete.length; i += chunkSize) {
+          const chunk = idsToDelete.slice(i, i + chunkSize);
+          const { error: delErr } = await supabase
+            .from('lockeddata')
+            .delete()
+            .in('id', chunk);
+          if (delErr) throw delErr;
+        }
+      }
+
+      setStatusMsg(`정리 완료: currentdata ${curIdList.length}건 삭제, lockeddata ${idsToDelete.length}건 삭제`);
+    } catch (e: any) {
+      console.error(e);
+      setStatusMsg(`[정리 실패] ${e?.message ?? e}`);
+    }
+  };
+
   // 렌더
   return (
     <div style={{ position: 'fixed', inset: 0, background: '#ffffff' }}>
+      {/* 절대(고정) 위치 정리 버튼: 다른 요소 레이아웃에 영향 없음 */}
+      <button
+        type="button"
+        onClick={handleCleanup}
+        style={{
+          position: 'absolute',
+          top: 8,
+          left: 8,
+          zIndex: 2000,
+          padding: '6px 10px',
+          fontSize: 12,
+          color: '#fff',
+          background: '#ef4444',
+          border: 'none',
+          borderRadius: 6,
+          boxShadow: '0 1px 2px rgba(0,0,0,0.1)',
+          cursor: 'pointer',
+        }}
+        title="currentdata 전체 삭제 / lockeddata 중복 최신 삭제"
+      >
+        clear
+      </button>
       {statusMsg && (
-        <div style={{ position: 'absolute', top: 8, left: 8, padding: '6px 8px', fontSize: 12, background: 'rgba(248,250,252,0.95)', border: '1px solid #e2e8f0', borderRadius: 6, color: '#0f172a' }}>
+        <div style={{ position: 'absolute', top: 48, left: 8, padding: '6px 8px', fontSize: 12, background: 'rgba(248,250,252,0.95)', border: '1px solid #e2e8f0', borderRadius: 6, color: '#0f172a' }}>
           {statusMsg}
         </div>
       )}
