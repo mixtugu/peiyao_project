@@ -172,7 +172,7 @@ function App() {
     }
   };
 
-  // 최신이 1번 슬롯, 그 다음이 2번 ... 최대 20번까지 (21번째 이후는 보이지 않음)
+  // 최신 이미지가 1번 슬롯, 그 다음이 2번 슬롯 ... 최대 20번까지 (21번째 이후는 보이지 않음)
   const desc = [...rows].sort((a, b) => {
     const ta = a.created_at ? new Date(a.created_at).getTime() : 0;
     const tb = b.created_at ? new Date(b.created_at).getTime() : 0;
@@ -258,9 +258,33 @@ function App() {
                         draggable={false}
                       />
                     </div>
-                    {hovered === hoverKey && row.image_url && (
-                      <div style={{ position: 'absolute', left: 8, right: 8, bottom: 8, padding: '6px 8px', fontSize: 12, color: '#ffffff', background: 'rgba(0,0,0,0.55)', borderRadius: 6, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', pointerEvents: 'none' }}>
-                        {row.image_url}
+                    {hovered === hoverKey && (
+                      <div
+                        style={{
+                          position: 'absolute',
+                          left: 8,
+                          right: 8,
+                          bottom: 8,
+                          padding: '6px 8px',
+                          fontSize: 12,
+                          color: '#ffffff',
+                          background: 'rgba(0,0,0,0.55)',
+                          borderRadius: 6,
+                          whiteSpace: 'nowrap',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          pointerEvents: 'none',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: 2,
+                        }}
+                      >
+                        <span>{`최신 ${slotNum}번째 이미지`}</span>
+                        {row.created_at && (
+                          <span style={{ fontSize: 11, opacity: 0.85 }}>
+                            {new Date(row.created_at).toLocaleString()}
+                          </span>
+                        )}
                       </div>
                     )}
                     {hovered === hoverKey && (
